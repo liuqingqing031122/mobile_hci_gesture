@@ -1,0 +1,48 @@
+body {
+  font-family: Arial, sans-serif;
+  text-align: center;
+  margin: 0;
+  padding: 20px;
+  background: #f5f5f5;
+}
+
+#stateDisplay {
+  margin-bottom: 20px;
+}
+
+.buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.btn {
+  padding: 18px;
+  background: #3b82f6;
+  color: white;
+  border-radius: 8px;
+  font-size: 18px;
+  transition: background 0.2s;
+}
+
+.btn.active {
+  background: #ef4444;
+}
+
+#circleProgress {
+  margin: 20px auto;
+  display: block;
+}
+
+.hint {
+  font-size: 14px;
+  color: #666;
+}
+
+canvas {
+  width: 100%;
+  max-width: 400px;
+  margin: 20px auto;
+  display: block;
+}
