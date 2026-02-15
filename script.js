@@ -1,3 +1,7 @@
+// =======================
+// FSM VARIABLES
+// =======================
+
 let currentState = "IDLE";
 let selectedFinger = null;
 
@@ -5,64 +9,41 @@ let wakeStartTime = null;
 let selectStartTime = null;
 let confirmStartTime = null;
 
-const WAKE_DURATION = 1500;
-const SELECT_DURATION = 1500;
-const CONFIRM_DURATION = 1000;
+const WAKE_DURATION = 2000;
+const SELECT_DURATION = 2000;
+const CONFIRM_DURATION = 1500;
+const GRACE_PERIOD = 2500;
 
 let handDetected = false;
 let fullPalmDetected = false;
 let fingerCount = null;
-let handValid = true;
+
+let lastHandTime = null;
+
+// =======================
+// STABILITY BUFFER
+// =======================
+
+let fingerHistory = [];
+let palmHistory = [];
+
+const HISTORY_SIZE = 8;
+const STABLE_THRESHOLD = 6;
+
+// =======================
+// DOM
+// =======================
 
 const stateDisplay = document.getElementById("stateDisplay");
 const progressCircle = document.getElementById("progressCircle");
+const canvasElement = document.getElementById("outputCanvas");
+const canvasCtx = canvasElement.getContext("2d");
+
 const circumference = 2 * Math.PI * 40;
 
-function countFingers(landmarks) {
-  let count = 0;
-
-  // Index
-  if (landmarks[8].y < landmarks[6].y) count++;
-  // Middle
-  if (landmarks[12].y < landmarks[10].y) count++;
-  // Ring
-  if (landmarks[16].y < landmarks[14].y) count++;
-  // Pinky
-  if (landmarks[20].y < landmarks[18].y) count++;
-
-  // Thumb
-  if (landmarks[4].x > landmarks[3].x) count++;
-
-  return count;
-}
-
-function onResults(results) {
-  canvasCtx.save();
-  canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
-  canvasCtx.drawImage(
-    results.image,
-    0,
-    0,
-    canvasElement.width,
-    canvasElement.height
-  );
-
-  if (results.multiHandLandmarks.length > 0) {
-    handDetected = true;
-    handValid = true;
-
-    const landmarks = results.multiHandLandmarks[0];
-
-    fingerCount = countFingers(landmarks);
-    fullPalmDetected = fingerCount === 5;
-  } else {
-    handDetected = false;
-    fingerCount = null;
-    fullPalmDetected = false;
-  }
-
-  canvasCtx.restore();
-}
+// =======================
+// UI
+// =======================
 
 function updateUI() {
   stateDisplay.innerText = "STATE: " + currentState;
@@ -89,15 +70,76 @@ function resetProgress() {
 
 function triggerAction(finger) {
   if (navigator.vibrate) navigator.vibrate(200);
-  console.log("Activated Button:", finger);
+  console.log("Activated:", finger);
 }
+
+// =======================
+// STABILITY LOGIC
+// =======================
+
+function getStableFinger() {
+  if (fingerHistory.length < HISTORY_SIZE) return null;
+
+  const counts = {};
+  fingerHistory.forEach((f) => {
+    if (f !== null) {
+      counts[f] = (counts[f] || 0) + 1;
+    }
+  });
+
+  let maxFinger = null;
+  let maxCount = 0;
+
+  for (let finger in counts) {
+    if (counts[finger] > maxCount) {
+      maxCount = counts[finger];
+      maxFinger = parseInt(finger);
+    }
+  }
+
+  if (maxCount >= STABLE_THRESHOLD) return maxFinger;
+  return null;
+}
+
+function isStablePalm() {
+  if (palmHistory.length < HISTORY_SIZE) return false;
+  const count = palmHistory.filter((p) => p === true).length;
+  return count >= STABLE_THRESHOLD;
+}
+
+// =======================
+// FINGER COUNT (改进拇指判断)
+// =======================
+
+function countFingers(landmarks) {
+  let count = 0;
+
+  // 四指
+  if (landmarks[8].y < landmarks[6].y) count++;
+  if (landmarks[12].y < landmarks[10].y) count++;
+  if (landmarks[16].y < landmarks[14].y) count++;
+  if (landmarks[20].y < landmarks[18].y) count++;
+
+  // 改进拇指判断（横向 + 纵向）
+  const thumbOpen =
+    Math.abs(landmarks[4].x - landmarks[2].x) > 0.05 &&
+    landmarks[4].y < landmarks[3].y;
+
+  if (thumbOpen) count++;
+
+  return count;
+}
+
+// =======================
+// FSM LOOP
+// =======================
 
 setInterval(() => {
   const now = Date.now();
 
   switch (currentState) {
-    case "IDLE": {
-      if (handDetected && fullPalmDetected && handValid) {
+    case "IDLE":
+      if (handDetected && fullPalmDetected) {
         if (!wakeStartTime) wakeStartTime = now;
 
         const elapsed = now - wakeStartTime;
@@ -106,34 +148,27 @@ setInterval(() => {
         if (elapsed >= WAKE_DURATION) {
           currentState = "SELECT_HOLD";
           selectStartTime = null;
-          selectedFinger = null;
           resetProgress();
         }
       } else {
         wakeStartTime = null;
         resetProgress();
       }
+
       break;
-    }
 
-    case "SELECT_HOLD": {
+    case "SELECT_HOLD":
       if (!handDetected) {
-        currentState = "IDLE";
-        selectedFinger = null;
-        selectStartTime = null;
-        resetProgress();
+        if (lastHandTime && now - lastHandTime > GRACE_PERIOD) {
+          currentState = "IDLE";
+          selectedFinger = null;
+          selectStartTime = null;
+          resetProgress();
+        }
+
         break;
       }
 
-      if (!handValid) {
-        currentState = "ERROR";
-        selectedFinger = null;
-        selectStartTime = null;
-        resetProgress();
-        break;
-      }
-
-      // 关键修复：没有 fingerCount 就视为没有持续按住，必须清空计时与选择
       if (!(fingerCount >= 1 && fingerCount <= 5)) {
         selectedFinger = null;
         selectStartTime = null;
@@ -141,14 +176,11 @@ setInterval(() => {
         break;
       }
 
-      // 有 fingerCount 才允许开始或继续计时
       if (selectedFinger !== fingerCount) {
         selectedFinger = fingerCount;
         selectStartTime = now;
         resetProgress();
       }
-
-      if (!selectStartTime) selectStartTime = now;
 
       const elapsed = now - selectStartTime;
       updateProgress(elapsed / SELECT_DURATION);
@@ -160,100 +192,39 @@ setInterval(() => {
       }
 
       break;
-    }
 
-    case "CONFIRM": {
-      const elapsed = now - confirmStartTime;
-      updateProgress(elapsed / CONFIRM_DURATION);
+    case "CONFIRM":
+      const confirmElapsed = now - confirmStartTime;
+      updateProgress(confirmElapsed / CONFIRM_DURATION);
 
-      if (elapsed >= CONFIRM_DURATION) {
+      if (confirmElapsed >= CONFIRM_DURATION) {
         currentState = "ACTIVATED";
         triggerAction(selectedFinger);
         resetProgress();
       }
-      break;
-    }
 
-    case "ACTIVATED": {
-      // 真实系统这里跳转页面并关闭摄像头
       break;
-    }
 
-    case "ERROR": {
-      resetProgress();
-
-      if (!handDetected) {
-        currentState = "IDLE";
-      } else if (handValid) {
-        // 恢复后回 IDLE 重新开始更简单
-        currentState = "IDLE";
-      }
+    case "ACTIVATED":
       break;
-    }
   }
 
   updateUI();
 }, 50);
 
-document.addEventListener("keydown", (e) => {
-  const k = e.key.toLowerCase();
-
-  if (k === "x") {
-    handDetected = false;
-    fullPalmDetected = false;
-    fingerCount = null;
-    wakeStartTime = null;
-    selectStartTime = null;
-    resetProgress();
-    return;
-  }
-
-  handDetected = true;
-  handValid = true;
-
-  if (k === "p") {
-    fullPalmDetected = true;
-    fingerCount = null;
-  }
-
-  if (k >= "1" && k <= "5") {
-    fullPalmDetected = false;
-    fingerCount = parseInt(k, 10);
-  }
-});
-
-document.addEventListener("keyup", (e) => {
-  const k = e.key.toLowerCase();
-
-  if (k === "p") {
-    fullPalmDetected = false;
-  }
-
-  if (k >= "1" && k <= "5") {
-    fingerCount = null;
-
-    // 关键修复：松开数字键就清空选择计时，防止两次短按累计
-    selectStartTime = null;
-    if (currentState === "SELECT_HOLD") {
-      selectedFinger = null;
-      resetProgress();
-    }
-  }
-});
+// =======================
+// MEDIAPIPE SETUP
+// =======================
 
 const videoElement = document.getElementById("inputVideo");
-const canvasElement = document.getElementById("outputCanvas");
-const canvasCtx = canvasElement.getContext("2d");
 
 const hands = new Hands({
-  locateFile: (file) => {
-    return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
-  },
+  locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`,
 });
 
 hands.setOptions({
   maxNumHands: 1,
-  modelComplexity: 1,
+  modelComplexity: 0,
   minDetectionConfidence: 0.7,
   minTrackingConfidence: 0.7,
 });
@@ -269,3 +240,73 @@ const camera = new Camera(videoElement, {
 });
 
 camera.start();
+let cameraRunning = true;
+
+// =======================
+// VISIBILITY CONTROL
+// =======================
+
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) {
+    if (cameraRunning) {
+      camera.stop();
+      cameraRunning = false;
+      console.log("Camera stopped (hidden)");
+    }
+  } else {
+    if (!cameraRunning) {
+      camera.start();
+      cameraRunning = true;
+      console.log("Camera restarted (visible)");
+    }
+  }
+});
+
+window.addEventListener("beforeunload", () => {
+  if (cameraRunning) camera.stop();
+});
+
+// =======================
+// HAND RESULTS
+// =======================
+
+function onResults(results) {
+  canvasElement.width = results.image.width;
+  canvasElement.height = results.image.height;
+
+  canvasCtx.save();
+  canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+  canvasCtx.drawImage(
+    results.image,
+    0,
+    0,
+    canvasElement.width,
+    canvasElement.height
+  );
+
+  if (results.multiHandLandmarks.length > 0) {
+    handDetected = true;
+    lastHandTime = Date.now();
+
+    const landmarks = results.multiHandLandmarks[0];
+    const rawFinger = countFingers(landmarks);
+
+    fingerHistory.push(rawFinger);
+    if (fingerHistory.length > HISTORY_SIZE) fingerHistory.shift();
+
+    palmHistory.push(rawFinger >= 4);
+    if (palmHistory.length > HISTORY_SIZE) palmHistory.shift();
+
+    fingerCount = getStableFinger();
+    fullPalmDetected = isStablePalm();
+  } else {
+    handDetected = false;
+    fingerCount = null;
+    fullPalmDetected = false;
+
+    fingerHistory = [];
+    palmHistory = [];
+  }
+
+  canvasCtx.restore();
+}
