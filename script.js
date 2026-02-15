@@ -1,28 +1,48 @@
-// =======================
-// FSM VARIABLES
-// =======================
+// ======================================================
+// Gesture-Based Button Activation System
+// Mobile-Optimized Version
+// ------------------------------------------------------
+// This script implements a finite state machine (FSM)
+// for gesture-based interaction using MediaPipe Hands.
+// The system is optimized for mobile stability.
+// ======================================================
 
+// ======================================================
+// 1. FSM STATE VARIABLES
+// ======================================================
+
+// Current interaction state
 let currentState = "IDLE";
+
+// Currently selected finger count (1–5)
 let selectedFinger = null;
 
+// Timing variables for dwell-based interaction
 let wakeStartTime = null;
 let selectStartTime = null;
 let confirmStartTime = null;
 
-const WAKE_DURATION = 1800;
-const SELECT_DURATION = 1500;
-const CONFIRM_DURATION = 1200;
+// Dwell durations (mobile optimized)
+const WAKE_DURATION = 1200; // Open palm hold to activate
+const SELECT_DURATION = 1200; // Hold gesture to select
+const CONFIRM_DURATION = 800; // Final confirmation hold
+
+// Grace period allows temporary hand loss without reset
 const GRACE_PERIOD = 2500;
 
+// Detection flags
 let handDetected = false;
 let fullPalmDetected = false;
 let fingerCount = null;
 
 let lastHandTime = null;
 
-// =======================
-// MOBILE STABILITY (time based)
-// =======================
+// ======================================================
+// 2. MOBILE STABILITY (TIME-BASED FILTERING)
+// ======================================================
+
+// Instead of frame voting, we use time-based stability.
+// A gesture must remain stable for STABLE_TIME ms.
 
 let candidateFinger = null;
 let candidateFingerStart = null;
@@ -32,9 +52,9 @@ let candidatePalmStart = null;
 
 const STABLE_TIME = 400;
 
-// =======================
-// DOM
-// =======================
+// ======================================================
+// 3. DOM REFERENCES
+// ======================================================
 
 const stateDisplay = document.getElementById("stateDisplay");
 const progressCircle = document.getElementById("progressCircle");
@@ -44,13 +64,35 @@ const videoElement = document.getElementById("inputVideo");
 
 const circumference = 2 * Math.PI * 38;
 
-// =======================
-// UI
-// =======================
+// ======================================================
+// 4. USER-FACING UI MESSAGES
+// ======================================================
 
 function updateUI() {
-  stateDisplay.innerText = "STATE: " + currentState;
+  // Translate technical states into user-friendly instructions
+  let message = "";
 
+  switch (currentState) {
+    case "IDLE":
+      message = "✋ Show an open palm to begin";
+      break;
+
+    case "SELECT_HOLD":
+      message = "☝️ Show 1–5 fingers to choose";
+      break;
+
+    case "CONFIRM":
+      message = "⏳ Hold to confirm…";
+      break;
+
+    case "ACTIVATED":
+      message = "✅ Activated";
+      break;
+  }
+
+  stateDisplay.innerText = message;
+
+  // Update visual highlight of selected button
   document.querySelectorAll(".btn").forEach((btn) => {
     btn.classList.remove("active");
   });
@@ -61,69 +103,76 @@ function updateUI() {
   }
 }
 
+// Update circular dwell progress indicator
 function updateProgress(ratio) {
   const progress = Math.min(Math.max(ratio, 0), 1);
   const offset = circumference * (1 - progress);
   progressCircle.style.strokeDashoffset = offset;
 }
 
+// Reset progress circle
 function resetProgress() {
   progressCircle.style.strokeDashoffset = circumference;
 }
 
+// Provide haptic + console feedback
 function triggerAction(finger) {
   if (navigator.vibrate) navigator.vibrate(200);
   console.log("Activated:", finger);
 }
 
-// =======================
-// MOBILE OPTIMIZED FINGER COUNT
-// =======================
+// ======================================================
+// 5. FINGER COUNTING (MOBILE-STABLE LOGIC)
+// ======================================================
 
+// A finger is considered extended if its tip is above
+// both PIP and MCP joints.
 function fingerExtended(tip, pip, mcp) {
   return tip.y < pip.y && pip.y < mcp.y;
 }
 
+// Count number of extended fingers (0–5)
 function countFingers(landmarks) {
-  let count = 0;
-
   const index = fingerExtended(landmarks[8], landmarks[6], landmarks[5]);
   const middle = fingerExtended(landmarks[12], landmarks[10], landmarks[9]);
   const ring = fingerExtended(landmarks[16], landmarks[14], landmarks[13]);
   const pinky = fingerExtended(landmarks[20], landmarks[18], landmarks[17]);
 
-  if (index) count++;
-  if (middle) count++;
-  if (ring) count++;
-  if (pinky) count++;
+  const extendedCount =
+    (index ? 1 : 0) + (middle ? 1 : 0) + (ring ? 1 : 0) + (pinky ? 1 : 0);
 
-  // -------- 更稳的拇指判断 --------
+  // If no fingers extended → treat as fist (0)
+  if (extendedCount === 0) {
+    return 0;
+  }
 
-  // 掌心中心点（大致）
+  // Thumb detection based on distance from palm center
   const palmCenterX = (landmarks[0].x + landmarks[5].x + landmarks[17].x) / 3;
 
   const thumbDistance = Math.abs(landmarks[4].x - palmCenterX);
-
   const thumbVertical =
     landmarks[4].y < landmarks[3].y && landmarks[3].y < landmarks[2].y;
 
-  // 提高阈值
-  if (thumbDistance > 0.12 && thumbVertical) {
-    count++;
+  let thumb = false;
+
+  // Threshold tuned for mobile wide-angle cameras
+  if (thumbDistance > 0.13 && thumbVertical) {
+    thumb = true;
   }
 
-  return count;
+  return extendedCount + (thumb ? 1 : 0);
 }
 
-// =======================
-// FSM LOOP
-// =======================
+// ======================================================
+// 6. FSM MAIN LOOP
+// ======================================================
 
 setInterval(() => {
   const now = Date.now();
 
   switch (currentState) {
     case "IDLE":
+      // Wait for stable open palm activation
       if (handDetected && fullPalmDetected) {
         if (!wakeStartTime) wakeStartTime = now;
 
@@ -139,9 +188,11 @@ setInterval(() => {
         wakeStartTime = null;
         resetProgress();
       }
+
       break;
 
     case "SELECT_HOLD":
+      // Allow short hand loss (grace period)
       if (!handDetected) {
         if (lastHandTime && now - lastHandTime > GRACE_PERIOD) {
           currentState = "IDLE";
@@ -152,6 +203,7 @@ setInterval(() => {
         break;
       }
 
+      // Only allow valid selections (1–5)
       if (!(fingerCount >= 1 && fingerCount <= 5)) {
         selectedFinger = null;
         selectStartTime = null;
@@ -159,47 +211,47 @@ setInterval(() => {
         break;
       }
 
+      // Update selection when gesture changes
       if (selectedFinger !== fingerCount) {
         selectedFinger = fingerCount;
         selectStartTime = now;
         resetProgress();
       }
 
-      {
-        const elapsed = now - selectStartTime;
-        updateProgress(elapsed / SELECT_DURATION);
+      const elapsed = now - selectStartTime;
+      updateProgress(elapsed / SELECT_DURATION);
 
-        if (elapsed >= SELECT_DURATION) {
-          currentState = "CONFIRM";
-          confirmStartTime = now;
-          resetProgress();
-        }
+      if (elapsed >= SELECT_DURATION) {
+        currentState = "CONFIRM";
+        confirmStartTime = now;
+        resetProgress();
       }
+
       break;
 
     case "CONFIRM":
-      {
-        const elapsed = now - confirmStartTime;
-        updateProgress(elapsed / CONFIRM_DURATION);
+      const confirmElapsed = now - confirmStartTime;
+      updateProgress(confirmElapsed / CONFIRM_DURATION);
 
-        if (elapsed >= CONFIRM_DURATION) {
-          currentState = "ACTIVATED";
-          triggerAction(selectedFinger);
-          resetProgress();
-        }
+      if (confirmElapsed >= CONFIRM_DURATION) {
+        currentState = "ACTIVATED";
+        triggerAction(selectedFinger);
+        resetProgress();
       }
+
       break;
 
     case "ACTIVATED":
+      // Remains in activated state until reset externally
       break;
   }
 
   updateUI();
 }, 50);
 
-// =======================
-// MEDIAPIPE SETUP
-// =======================
+// ======================================================
+// 7. CAMERA LIFECYCLE MANAGEMENT
+// ======================================================
 
 const hands = new Hands({
   locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`,
@@ -214,10 +266,10 @@ hands.setOptions({
 
 hands.onResults(onResults);
 
-// camera instance will be created dynamically
 let camera = null;
 let cameraRunning = false;
 
+// Stop underlying media tracks explicitly
 function stopMediaTracks() {
   const stream = videoElement.srcObject;
   if (stream && stream.getTracks) {
@@ -238,69 +290,35 @@ function createCamera() {
 
 function startCamera() {
   if (cameraRunning) return;
-
   if (!camera) createCamera();
-
-  try {
-    camera.start();
-    cameraRunning = true;
-    console.log("Camera started");
-  } catch (e) {
-    console.warn("Camera start failed", e);
-  }
+  camera.start();
+  cameraRunning = true;
 }
 
 function stopCamera() {
   if (!cameraRunning) return;
-
-  try {
-    camera.stop();
-  } catch (e) {
-    console.warn("Camera stop failed", e);
-  }
-
+  camera.stop();
   cameraRunning = false;
   stopMediaTracks();
-
-  // drop camera instance so restart is clean on mobile browsers
   camera = null;
-
-  console.log("Camera stopped");
 }
 
-// start once
+// Initial camera start
 startCamera();
 
-// =======================
-// VISIBILITY AND LIFECYCLE CONTROL
-// =======================
-
-// tab switch and app background
+// Stop camera when page hidden or backgrounded
 document.addEventListener("visibilitychange", () => {
-  if (document.hidden) {
-    stopCamera();
-  } else {
-    startCamera();
-  }
+  if (document.hidden) stopCamera();
+  else startCamera();
 });
 
-// iOS Safari often uses pagehide pageshow more reliably
-window.addEventListener("pagehide", () => {
-  stopCamera();
-});
+window.addEventListener("pagehide", stopCamera);
+window.addEventListener("pageshow", startCamera);
+window.addEventListener("beforeunload", stopCamera);
 
-window.addEventListener("pageshow", () => {
-  startCamera();
-});
-
-// leaving the page
-window.addEventListener("beforeunload", () => {
-  stopCamera();
-});
-
-// =======================
-// HAND RESULTS
-// =======================
+// ======================================================
+// 8. HAND LANDMARK PROCESSING
+// ======================================================
 
 function onResults(results) {
   canvasElement.width = results.image.width;
@@ -327,11 +345,12 @@ function onResults(results) {
     const landmarks = results.multiHandLandmarks[0];
     const rawFinger = countFingers(landmarks);
 
-    // time stable finger
+    // Time-based finger stability
     if (rawFinger !== candidateFinger) {
       candidateFinger = rawFinger;
       candidateFingerStart = Date.now();
     }
+
     if (
       candidateFingerStart &&
       Date.now() - candidateFingerStart >= STABLE_TIME
@@ -341,12 +360,14 @@ function onResults(results) {
       fingerCount = null;
     }
 
-    // time stable palm (looser)
+    // Stable palm detection (≥4 fingers)
     const rawPalm = rawFinger >= 4;
+
     if (rawPalm !== candidatePalm) {
       candidatePalm = rawPalm;
       candidatePalmStart = Date.now();
     }
+
     if (candidatePalmStart && Date.now() - candidatePalmStart >= STABLE_TIME) {
       fullPalmDetected = rawPalm;
     } else {
