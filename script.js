@@ -87,15 +87,30 @@ function fingerExtended(tip, pip, mcp) {
 function countFingers(landmarks) {
   let count = 0;
 
-  if (fingerExtended(landmarks[8], landmarks[6], landmarks[5])) count++;
-  if (fingerExtended(landmarks[12], landmarks[10], landmarks[9])) count++;
-  if (fingerExtended(landmarks[16], landmarks[14], landmarks[13])) count++;
-  if (fingerExtended(landmarks[20], landmarks[18], landmarks[17])) count++;
+  const index = fingerExtended(landmarks[8], landmarks[6], landmarks[5]);
+  const middle = fingerExtended(landmarks[12], landmarks[10], landmarks[9]);
+  const ring = fingerExtended(landmarks[16], landmarks[14], landmarks[13]);
+  const pinky = fingerExtended(landmarks[20], landmarks[18], landmarks[17]);
 
-  const thumbHorizontal = Math.abs(landmarks[4].x - landmarks[2].x);
-  const thumbVertical = landmarks[4].y < landmarks[3].y;
+  if (index) count++;
+  if (middle) count++;
+  if (ring) count++;
+  if (pinky) count++;
 
-  if (thumbHorizontal > 0.06 && thumbVertical) count++;
+  // -------- 更稳的拇指判断 --------
+
+  // 掌心中心点（大致）
+  const palmCenterX = (landmarks[0].x + landmarks[5].x + landmarks[17].x) / 3;
+
+  const thumbDistance = Math.abs(landmarks[4].x - palmCenterX);
+
+  const thumbVertical =
+    landmarks[4].y < landmarks[3].y && landmarks[3].y < landmarks[2].y;
+
+  // 提高阈值
+  if (thumbDistance > 0.12 && thumbVertical) {
+    count++;
+  }
 
   return count;
 }
