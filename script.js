@@ -9,9 +9,9 @@ let wakeStartTime = null;
 let selectStartTime = null;
 let confirmStartTime = null;
 
-const WAKE_DURATION = 2000;
-const SELECT_DURATION = 2000;
-const CONFIRM_DURATION = 1500;
+const WAKE_DURATION = 1800;
+const SELECT_DURATION = 1500;
+const CONFIRM_DURATION = 1200;
 const GRACE_PERIOD = 2500;
 
 let handDetected = false;
@@ -21,14 +21,16 @@ let fingerCount = null;
 let lastHandTime = null;
 
 // =======================
-// STABILITY BUFFER
+// MOBILE STABILITY (time based)
 // =======================
 
-let fingerHistory = [];
-let palmHistory = [];
+let candidateFinger = null;
+let candidateFingerStart = null;
 
-const HISTORY_SIZE = 8;
-const STABLE_THRESHOLD = 6;
+let candidatePalm = false;
+let candidatePalmStart = null;
+
+const STABLE_TIME = 400;
 
 // =======================
 // DOM
@@ -38,8 +40,9 @@ const stateDisplay = document.getElementById("stateDisplay");
 const progressCircle = document.getElementById("progressCircle");
 const canvasElement = document.getElementById("outputCanvas");
 const canvasCtx = canvasElement.getContext("2d");
+const videoElement = document.getElementById("inputVideo");
 
-const circumference = 2 * Math.PI * 40;
+const circumference = 2 * Math.PI * 38;
 
 // =======================
 // UI
@@ -74,41 +77,7 @@ function triggerAction(finger) {
 }
 
 // =======================
-// STABILITY LOGIC
-// =======================
-
-function getStableFinger() {
-  if (fingerHistory.length < HISTORY_SIZE) return null;
-
-  const counts = {};
-  fingerHistory.forEach((f) => {
-    if (f !== null) {
-      counts[f] = (counts[f] || 0) + 1;
-    }
-  });
-
-  let maxFinger = null;
-  let maxCount = 0;
-
-  for (let finger in counts) {
-    if (counts[finger] > maxCount) {
-      maxCount = counts[finger];
-      maxFinger = parseInt(finger);
-    }
-  }
-
-  if (maxCount >= STABLE_THRESHOLD) return maxFinger;
-  return null;
-}
-
-function isStablePalm() {
-  if (palmHistory.length < HISTORY_SIZE) return false;
-  const count = palmHistory.filter((p) => p === true).length;
-  return count >= STABLE_THRESHOLD;
-}
-
-// =======================
-// FINGER COUNT (改进拇指判断)
+// MOBILE OPTIMIZED FINGER COUNT
 // =======================
 
 function fingerExtended(tip, pip, mcp) {
@@ -118,25 +87,15 @@ function fingerExtended(tip, pip, mcp) {
 function countFingers(landmarks) {
   let count = 0;
 
-  // Index
   if (fingerExtended(landmarks[8], landmarks[6], landmarks[5])) count++;
-
-  // Middle
   if (fingerExtended(landmarks[12], landmarks[10], landmarks[9])) count++;
-
-  // Ring
   if (fingerExtended(landmarks[16], landmarks[14], landmarks[13])) count++;
-
-  // Pinky
   if (fingerExtended(landmarks[20], landmarks[18], landmarks[17])) count++;
 
-  // Thumb (更严格判断)
   const thumbHorizontal = Math.abs(landmarks[4].x - landmarks[2].x);
   const thumbVertical = landmarks[4].y < landmarks[3].y;
 
-  if (thumbHorizontal > 0.06 && thumbVertical) {
-    count++;
-  }
+  if (thumbHorizontal > 0.06 && thumbVertical) count++;
 
   return count;
 }
@@ -165,7 +124,6 @@ setInterval(() => {
         wakeStartTime = null;
         resetProgress();
       }
-
       break;
 
     case "SELECT_HOLD":
@@ -176,7 +134,6 @@ setInterval(() => {
           selectStartTime = null;
           resetProgress();
         }
-
         break;
       }
 
@@ -193,27 +150,29 @@ setInterval(() => {
         resetProgress();
       }
 
-      const elapsed = now - selectStartTime;
-      updateProgress(elapsed / SELECT_DURATION);
+      {
+        const elapsed = now - selectStartTime;
+        updateProgress(elapsed / SELECT_DURATION);
 
-      if (elapsed >= SELECT_DURATION) {
-        currentState = "CONFIRM";
-        confirmStartTime = now;
-        resetProgress();
+        if (elapsed >= SELECT_DURATION) {
+          currentState = "CONFIRM";
+          confirmStartTime = now;
+          resetProgress();
+        }
       }
-
       break;
 
     case "CONFIRM":
-      const confirmElapsed = now - confirmStartTime;
-      updateProgress(confirmElapsed / CONFIRM_DURATION);
+      {
+        const elapsed = now - confirmStartTime;
+        updateProgress(elapsed / CONFIRM_DURATION);
 
-      if (confirmElapsed >= CONFIRM_DURATION) {
-        currentState = "ACTIVATED";
-        triggerAction(selectedFinger);
-        resetProgress();
+        if (elapsed >= CONFIRM_DURATION) {
+          currentState = "ACTIVATED";
+          triggerAction(selectedFinger);
+          resetProgress();
+        }
       }
-
       break;
 
     case "ACTIVATED":
@@ -226,8 +185,6 @@ setInterval(() => {
 // =======================
 // MEDIAPIPE SETUP
 // =======================
-
-const videoElement = document.getElementById("inputVideo");
 
 const hands = new Hands({
   locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`,
@@ -242,39 +199,88 @@ hands.setOptions({
 
 hands.onResults(onResults);
 
-const camera = new Camera(videoElement, {
-  onFrame: async () => {
-    await hands.send({ image: videoElement });
-  },
-  width: 640,
-  height: 480,
-});
+// camera instance will be created dynamically
+let camera = null;
+let cameraRunning = false;
 
-camera.start();
-let cameraRunning = true;
+function stopMediaTracks() {
+  const stream = videoElement.srcObject;
+  if (stream && stream.getTracks) {
+    stream.getTracks().forEach((t) => t.stop());
+  }
+  videoElement.srcObject = null;
+}
+
+function createCamera() {
+  camera = new Camera(videoElement, {
+    onFrame: async () => {
+      await hands.send({ image: videoElement });
+    },
+    width: 640,
+    height: 480,
+  });
+}
+
+function startCamera() {
+  if (cameraRunning) return;
+
+  if (!camera) createCamera();
+
+  try {
+    camera.start();
+    cameraRunning = true;
+    console.log("Camera started");
+  } catch (e) {
+    console.warn("Camera start failed", e);
+  }
+}
+
+function stopCamera() {
+  if (!cameraRunning) return;
+
+  try {
+    camera.stop();
+  } catch (e) {
+    console.warn("Camera stop failed", e);
+  }
+
+  cameraRunning = false;
+  stopMediaTracks();
+
+  // drop camera instance so restart is clean on mobile browsers
+  camera = null;
+
+  console.log("Camera stopped");
+}
+
+// start once
+startCamera();
 
 // =======================
-// VISIBILITY CONTROL
+// VISIBILITY AND LIFECYCLE CONTROL
 // =======================
 
+// tab switch and app background
 document.addEventListener("visibilitychange", () => {
   if (document.hidden) {
-    if (cameraRunning) {
-      camera.stop();
-      cameraRunning = false;
-      console.log("Camera stopped (hidden)");
-    }
+    stopCamera();
   } else {
-    if (!cameraRunning) {
-      camera.start();
-      cameraRunning = true;
-      console.log("Camera restarted (visible)");
-    }
+    startCamera();
   }
 });
 
+// iOS Safari often uses pagehide pageshow more reliably
+window.addEventListener("pagehide", () => {
+  stopCamera();
+});
+
+window.addEventListener("pageshow", () => {
+  startCamera();
+});
+
+// leaving the page
 window.addEventListener("beforeunload", () => {
-  if (cameraRunning) camera.stop();
+  stopCamera();
 });
 
 // =======================
@@ -287,6 +293,10 @@ function onResults(results) {
 
   canvasCtx.save();
   canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+
+  canvasCtx.translate(canvasElement.width, 0);
+  canvasCtx.scale(-1, 1);
+
   canvasCtx.drawImage(
     results.image,
     0,
@@ -295,28 +305,48 @@ function onResults(results) {
     canvasElement.height
   );
 
-  if (results.multiHandLandmarks.length > 0) {
+  if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
     handDetected = true;
     lastHandTime = Date.now();
 
     const landmarks = results.multiHandLandmarks[0];
     const rawFinger = countFingers(landmarks);
 
-    fingerHistory.push(rawFinger);
-    if (fingerHistory.length > HISTORY_SIZE) fingerHistory.shift();
+    // time stable finger
+    if (rawFinger !== candidateFinger) {
+      candidateFinger = rawFinger;
+      candidateFingerStart = Date.now();
+    }
+    if (
+      candidateFingerStart &&
+      Date.now() - candidateFingerStart >= STABLE_TIME
+    ) {
+      fingerCount = rawFinger;
+    } else {
+      fingerCount = null;
+    }
 
-    palmHistory.push(rawFinger >= 4);
-    if (palmHistory.length > HISTORY_SIZE) palmHistory.shift();
-
-    fingerCount = getStableFinger();
-    fullPalmDetected = isStablePalm();
+    // time stable palm (looser)
+    const rawPalm = rawFinger >= 4;
+    if (rawPalm !== candidatePalm) {
+      candidatePalm = rawPalm;
+      candidatePalmStart = Date.now();
+    }
+    if (candidatePalmStart && Date.now() - candidatePalmStart >= STABLE_TIME) {
+      fullPalmDetected = rawPalm;
+    } else {
+      fullPalmDetected = false;
+    }
   } else {
     handDetected = false;
     fingerCount = null;
     fullPalmDetected = false;
 
-    fingerHistory = [];
-    palmHistory = [];
+    candidateFinger = null;
+    candidateFingerStart = null;
+
+    candidatePalm = false;
+    candidatePalmStart = null;
   }
 
   canvasCtx.restore();
