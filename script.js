@@ -111,21 +111,32 @@ function isStablePalm() {
 // FINGER COUNT (改进拇指判断)
 // =======================
 
+function fingerExtended(tip, pip, mcp) {
+  return tip.y < pip.y && pip.y < mcp.y;
+}
+
 function countFingers(landmarks) {
   let count = 0;
 
-  // 四指
-  if (landmarks[8].y < landmarks[6].y) count++;
-  if (landmarks[12].y < landmarks[10].y) count++;
-  if (landmarks[16].y < landmarks[14].y) count++;
-  if (landmarks[20].y < landmarks[18].y) count++;
+  // Index
+  if (fingerExtended(landmarks[8], landmarks[6], landmarks[5])) count++;
 
-  // 改进拇指判断（横向 + 纵向）
-  const thumbOpen =
-    Math.abs(landmarks[4].x - landmarks[2].x) > 0.05 &&
-    landmarks[4].y < landmarks[3].y;
+  // Middle
+  if (fingerExtended(landmarks[12], landmarks[10], landmarks[9])) count++;
 
-  if (thumbOpen) count++;
+  // Ring
+  if (fingerExtended(landmarks[16], landmarks[14], landmarks[13])) count++;
+
+  // Pinky
+  if (fingerExtended(landmarks[20], landmarks[18], landmarks[17])) count++;
+
+  // Thumb (更严格判断)
+  const thumbHorizontal = Math.abs(landmarks[4].x - landmarks[2].x);
+  const thumbVertical = landmarks[4].y < landmarks[3].y;
+
+  if (thumbHorizontal > 0.06 && thumbVertical) {
+    count++;
+  }
 
   return count;
 }
