@@ -2,66 +2,121 @@
 <html>
   <head>
     <meta charset="UTF-8" />
-    <title>Gesture-Based Button Activation</title>
+    <title>Gesture Study</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="stylesheet" href="style.css" />
-
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
   </head>
 
   <body>
-    <div class="container">
-      <h2 id="stateDisplay">STATE: IDLE</h2>
+    <!-- SCREEN 1: Setup -->
+    <div id="setupScreen" class="screen">
+      <div class="setup-box">
+        <h2>Gesture Study</h2>
+        <p>Please enter your Participant ID given by the researcher.</p>
+        <input
+          type="text"
+          id="participantInput"
+          placeholder="e.g. P1"
+          maxlength="5"
+        />
+        <button id="startBtn" onclick="startStudy()">Start</button>
 
-      <div class="video-wrapper">
-        <video id="inputVideo" style="display: none"></video>
-        <canvas id="outputCanvas"></canvas>
-
-        <div class="progress-container">
-          <svg width="90" height="90">
-            <circle
-              cx="45"
-              cy="45"
-              r="38"
-              stroke="#ddd"
-              stroke-width="6"
-              fill="none"
-            />
-
-            <circle
-              id="progressCircle"
-              cx="45"
-              cy="45"
-              r="38"
-              stroke="#22c55e"
-              stroke-width="6"
-              fill="none"
-              stroke-dasharray="238"
-              stroke-dashoffset="238"
-              transform="rotate(-90 45 45)"
-            />
-          </svg>
+        <div class="how-to-use">
+          <h3>How to Use</h3>
+          <p>
+            1. Show an open palm to wake the system.<br />
+            2. Hold for 1.2 seconds to enter selection mode.<br />
+            3. Show 1–5 fingers to select a button.<br />
+            4. Hold steady to confirm.
+          </p>
         </div>
       </div>
+    </div>
 
-      <div class="buttons">
-        <div class="btn" id="btn1">Button 1</div>
-        <div class="btn" id="btn2">Button 2</div>
-        <div class="btn" id="btn3">Button 3</div>
-        <div class="btn" id="btn4">Button 4</div>
-        <div class="btn" id="btn5">Button 5</div>
+    <!-- SCREEN 2: Task -->
+    <div id="taskScreen" class="screen" style="display: none">
+      <div class="container">
+        <div class="task-banner" id="taskBanner">Task 1 of 5</div>
+
+        <div class="task-instruction" id="taskInstruction">
+          Please activate Button 3
+        </div>
+
+        <div class="timeout-bar-container">
+          <div class="timeout-bar" id="timeoutBar"></div>
+        </div>
+
+        <h2 id="stateDisplay">Show open palm to begin</h2>
+
+        <div class="video-wrapper">
+          <video id="inputVideo" style="display: none"></video>
+          <canvas id="outputCanvas"></canvas>
+          <div class="progress-container">
+            <svg width="90" height="90">
+              <circle
+                cx="45"
+                cy="45"
+                r="38"
+                stroke="#ddd"
+                stroke-width="6"
+                fill="none"
+              />
+              <circle
+                id="progressCircle"
+                cx="45"
+                cy="45"
+                r="38"
+                stroke="#22c55e"
+                stroke-width="6"
+                fill="none"
+                stroke-dasharray="238"
+                stroke-dashoffset="238"
+                transform="rotate(-90 45 45)"
+              />
+            </svg>
+          </div>
+        </div>
+
+        <div class="buttons">
+          <div class="btn" id="btn1">Button 1</div>
+          <div class="btn" id="btn2">Button 2</div>
+          <div class="btn" id="btn3">Button 3</div>
+          <div class="btn" id="btn4">Button 4</div>
+          <div class="btn" id="btn5">Button 5</div>
+        </div>
+
+        <div id="feedbackMsg" class="feedback-msg"></div>
       </div>
+    </div>
 
-      <div class="instructions">
-        <h3>How to Use</h3>
-        <p>
-          1. Show an open palm to activate the system.<br />
-          2. Hold for 2 seconds to enter selection mode.<br />
-          3. Show 1–5 fingers to select a button.<br />
-          4. Hold steady to confirm.
-        </p>
+    <!-- SCREEN 3: Between conditions / Final done -->
+    <div id="doneScreen" class="screen" style="display: none">
+      <div class="setup-box">
+        <h2 id="doneTitle">Condition Complete</h2>
+        <p id="doneMessage"></p>
+        <div
+          id="conditionInstructions"
+          class="condition-instructions"
+          style="display: none"
+        >
+          <h3>Next Condition Instructions</h3>
+          <p id="nextConditionText"></p>
+        </div>
+        <button class="btn-green" onclick="downloadLog()">
+          ⬇️ Download Log
+        </button>
+        <button
+          class="btn-blue"
+          id="nextBtn"
+          onclick="nextCondition()"
+          style="display: none"
+        >
+          ▶️ Continue to Next Condition
+        </button>
+        <p class="small-note" id="doneNote"></p>
       </div>
     </div>
 
