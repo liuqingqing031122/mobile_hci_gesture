@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+<!doctype html>
 <html>
   <head>
     <meta charset="UTF-8" />
@@ -52,7 +52,14 @@
         <h2 id="stateDisplay">Show open palm to begin</h2>
 
         <div class="video-wrapper">
-          <video id="inputVideo" style="display: none"></video>
+          <video
+            id="inputVideo"
+            autoplay
+            muted
+            playsinline
+            webkit-playsinline
+            style="position: absolute; width: 1px; height: 1px; opacity: 0"
+          ></video>
           <canvas id="outputCanvas"></canvas>
           <div class="progress-container">
             <svg width="90" height="90">

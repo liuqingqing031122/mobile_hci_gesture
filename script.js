@@ -122,9 +122,8 @@ function startCondition() {
   taskLog = [];
 
   // Update condition label in task banner
-  document.getElementById(
-    "taskBanner"
-  ).innerText = `Condition: ${CONDITION_LABELS[condition]} — Task 1 of ${BUTTONS.length}`;
+  document.getElementById("taskBanner").innerText =
+    `Condition: ${CONDITION_LABELS[condition]} — Task 1 of ${BUTTONS.length}`;
 
   loadTask(currentTaskIndex);
 }
@@ -140,9 +139,8 @@ function loadTask(index) {
   document.getElementById("taskBanner").innerText = `Condition: ${
     CONDITION_LABELS[condition]
   } — Task ${index + 1} of ${BUTTONS.length}`;
-  document.getElementById(
-    "taskInstruction"
-  ).innerText = `Please activate Button ${target}`;
+  document.getElementById("taskInstruction").innerText =
+    `Please activate Button ${target}`;
 
   feedbackMsg.innerText = "";
   feedbackMsg.className = "feedback-msg";
@@ -225,9 +223,8 @@ function endCondition() {
   if (isLast) {
     // All conditions done
     document.getElementById("doneTitle").innerText = "Study Complete!";
-    document.getElementById(
-      "doneMessage"
-    ).innerText = `All conditions completed. Please download your log and fill in the survey.`;
+    document.getElementById("doneMessage").innerText =
+      `All conditions completed. Please download your log and fill in the survey.`;
     document.getElementById("conditionInstructions").style.display = "none";
     document.getElementById("nextBtn").style.display = "none";
     document.getElementById("doneNote").innerText =
@@ -238,13 +235,11 @@ function endCondition() {
     document.getElementById("doneTitle").innerText = `Condition ${
       currentConditionIndex + 1
     } of ${CONDITIONS.length} Complete`;
-    document.getElementById(
-      "doneMessage"
-    ).innerText = `Please download your log, then follow the instructions below for the next condition.`;
+    document.getElementById("doneMessage").innerText =
+      `Please download your log, then follow the instructions below for the next condition.`;
     document.getElementById("conditionInstructions").style.display = "block";
-    document.getElementById(
-      "nextConditionText"
-    ).innerText = `Next: ${CONDITION_LABELS[nextCondition]} — ${CONDITION_INSTRUCTIONS[nextCondition]}`;
+    document.getElementById("nextConditionText").innerText =
+      `Next: ${CONDITION_LABELS[nextCondition]} — ${CONDITION_INSTRUCTIONS[nextCondition]}`;
     document.getElementById("nextBtn").style.display = "block";
     document.getElementById("doneNote").innerText =
       "Download your log before continuing.";
@@ -496,11 +491,28 @@ function createCamera() {
   });
 }
 
-function startCamera() {
+async function startCamera() {
   if (cameraRunning) return;
-  if (!camera) createCamera();
-  camera.start();
-  cameraRunning = true;
+
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: "user" },
+    });
+
+    videoElement.srcObject = stream;
+
+    await videoElement.play();
+
+    console.log("Video readyState:", videoElement.readyState);
+
+    if (!camera) createCamera();
+    camera.start();
+
+    cameraRunning = true;
+  } catch (err) {
+    alert("Camera error: " + err.message);
+    console.error(err);
+  }
 }
 
 function stopCamera() {
@@ -537,7 +549,7 @@ function onResults(results) {
     0,
     0,
     canvasElement.width,
-    canvasElement.height
+    canvasElement.height,
   );
 
   if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
