@@ -454,79 +454,112 @@ setInterval(() => {
 }, 50);
 
 // ======================================================
-// 12. CAMERA LIFECYCLE
+// 12. CAMERA LIFECYCLE (iPhone Stable Version)
 // ======================================================
 
 const hands = new Hands({
   locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`,
 });
 
+// 🔥 调低 confidence 提升 dim light 稳定性
 hands.setOptions({
   maxNumHands: 1,
   modelComplexity: 0,
-  minDetectionConfidence: 0.7,
-  minTrackingConfidence: 0.7,
+  minDetectionConfidence: 0.4,
+  minTrackingConfidence: 0.4,
 });
 
 hands.onResults(onResults);
 
-let camera = null;
-let cameraRunning = false;
+let stream = null;
+let processing = false;
+let animationId = null;
 
-function stopMediaTracks() {
-  const stream = videoElement.srcObject;
-  if (stream && stream.getTracks) {
-    stream.getTracks().forEach((t) => t.stop());
-  }
-  videoElement.srcObject = null;
-}
+const FRAME_INTERVAL = 120; // 120ms ≈ 8fps
+let lastFrameTime = 0;
 
-function createCamera() {
-  camera = new Camera(videoElement, {
-    onFrame: async () => {
-      await hands.send({ image: videoElement });
-    },
-    width: 640,
-    height: 480,
-  });
-}
+// ======================================================
+// Start Camera
+// ======================================================
 
 async function startCamera() {
-  if (cameraRunning) return;
-
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: "user" },
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: {
+        facingMode: "user",
+        width: 256,
+        height: 192,
+      },
     });
 
     videoElement.srcObject = stream;
-
     await videoElement.play();
 
-    console.log("Video readyState:", videoElement.readyState);
-
-    if (!camera) createCamera();
-    camera.start();
-
-    cameraRunning = true;
+    startProcessingLoop();
   } catch (err) {
     alert("Camera error: " + err.message);
     console.error(err);
   }
 }
 
-function stopCamera() {
-  if (!cameraRunning) return;
-  camera.stop();
-  cameraRunning = false;
-  stopMediaTracks();
-  camera = null;
+// ======================================================
+// Processing Loop (Controlled FPS)
+// ======================================================
+
+function startProcessingLoop() {
+  function loop() {
+    const now = Date.now();
+
+    if (
+      videoElement.readyState === 4 &&
+      now - lastFrameTime > FRAME_INTERVAL &&
+      !processing
+    ) {
+      lastFrameTime = now;
+      processing = true;
+
+      hands
+        .send({ image: videoElement })
+        .catch((err) => console.error(err))
+        .finally(() => {
+          processing = false;
+        });
+    }
+
+    animationId = requestAnimationFrame(loop);
+  }
+
+  loop();
 }
 
+// ======================================================
+// Stop Camera
+// ======================================================
+
+function stopCamera() {
+  if (animationId) {
+    cancelAnimationFrame(animationId);
+    animationId = null;
+  }
+
+  if (stream) {
+    stream.getTracks().forEach((track) => track.stop());
+    stream = null;
+  }
+
+  videoElement.srcObject = null;
+}
+
+// ======================================================
+// Visibility Handling
+// ======================================================
+
 document.addEventListener("visibilitychange", () => {
-  if (document.hidden) stopCamera();
-  else if (document.getElementById("taskScreen").style.display !== "none")
+  if (document.hidden) {
+    stopCamera();
+  } else if (document.getElementById("taskScreen").style.display !== "none") {
     startCamera();
+  }
 });
 
 window.addEventListener("pagehide", stopCamera);
